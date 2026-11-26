@@ -1,0 +1,29 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "datalint-mcp"
+version = "0.1.0"
+description = "An MCP server that lets Claude audit your data: profiles, missing values, duplicates and more."
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.10"
+authors = [{ name = "Asma Hachaichi" }]
+keywords = ["mcp", "claude", "data-quality", "llm", "agents"]
+dependencies = [
+  "mcp>=2.3,<3",
+  "pandas>=2.2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8"]
+
+[project.scripts]
+datalint-mcp = "datalint_mcp.server:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/datalint_mcp"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

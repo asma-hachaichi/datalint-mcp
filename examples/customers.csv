@@ -1,0 +1,11 @@
+id,email,age,signup_date,country,score,constant,empty
+1,ana@example.com,34,2024-01-05,France,88.5,x,
+2,ben@example.com,N/A,2024-02-11,France,72,x,
+3,cara@example.com,29,2024-03-20,Spain,91,x,
+4,dan@example.com,41,2024-04-02,Spain,-5,x,
+5,ANA@example.com ,34,2024-05-09,france,60,x,
+6,eve@example.com,null,2024-06-15,Italy,0,x,
+7,fay@example.com,52,2024-07-01, Italy,77,x,
+8,gus@example.com,38,2024-08-19,Spain,,x,
+3,cara@example.com,29,2024-03-20,Spain,91,x,
+3,cara@example.com,29,2024-03-20,Spain,91,x,
