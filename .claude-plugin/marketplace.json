@@ -1,0 +1,12 @@
+{
+  "name": "datalint-mcp",
+  "description": "The datalint plugin: an MCP server and skill for auditing data quality.",
+  "owner": { "name": "Asma Hachaichi" },
+  "plugins": [
+    {
+      "name": "datalint",
+      "source": "./",
+      "description": "Audit CSV, TSV and SQLite data for missing values, duplicates, outliers, broken keys and personal data."
+    }
+  ]
+}

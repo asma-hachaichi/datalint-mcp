@@ -8,6 +8,11 @@ from datalint_mcp.datasets import Registry
 EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
 
 
+def pytest_addoption(parser):
+    parser.addoption("--release-tag", default=None,
+                     help="The git tag being released, checked against the code's version.")
+
+
 def _load_example_builder():
     spec = importlib.util.spec_from_file_location("make_shop_db", EXAMPLES / "make_shop_db.py")
     module = importlib.util.module_from_spec(spec)
