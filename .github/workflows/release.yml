@@ -3,7 +3,8 @@ name: release
 # Push a tag like v0.1.0 to publish that version to PyPI, then to the MCP Registry.
 # Both sign in with GitHub's OIDC token, so no secret is stored. One-time setup on PyPI:
 # add a trusted publisher for project datalint-mcp, repository asma-hachaichi/datalint-mcp,
-# workflow release.yml, environment pypi.
+# workflow release.yml, and no environment. (GitHub Free can't configure environments in
+# private repositories, so the job doesn't use one.)
 on:
   push:
     tags: ["v*"]
@@ -40,7 +41,6 @@ jobs:
   pypi:
     needs: build
     runs-on: ubuntu-latest
-    environment: pypi
     permissions:
       id-token: write  # PyPI trusted publishing
     steps:
