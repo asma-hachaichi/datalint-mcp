@@ -1,10 +1,14 @@
 name: release
 
 # Push a tag like v0.1.0 to publish that version to PyPI, then to the MCP Registry.
-# Both sign in with GitHub's OIDC token, so no secret is stored. One-time setup on PyPI:
-# add a trusted publisher for project datalint-mcp, repository asma-hachaichi/datalint-mcp,
-# workflow release.yml, and no environment. (GitHub Free can't configure environments in
-# private repositories, so the job doesn't use one.)
+#
+# PyPI uses an API token in the PYPI_API_TOKEN secret, scoped to the datalint-mcp project.
+# PyPI trusted publishing (OIDC) can't work for this repo yet: GitHub gives repositories
+# created after July 15, 2026 an "immutable" OIDC subject (repo:owner@id/repo@id:...) that
+# can't be switched off, and PyPI only accepts the classic one (pypi/warehouse#19405).
+# Once PyPI supports it, go back to trusted publishing and delete the token.
+#
+# The MCP Registry still signs in with GitHub OIDC, so it needs no secret.
 on:
   push:
     tags: ["v*"]
@@ -41,14 +45,15 @@ jobs:
   pypi:
     needs: build
     runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # PyPI trusted publishing
     steps:
       - uses: actions/download-artifact@v4
         with:
           name: dist
           path: dist/
       - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_API_TOKEN }}
+          attestations: false  # attestations need trusted publishing
 
   mcp-registry:
     needs: pypi  # the registry checks that the PyPI package exists
