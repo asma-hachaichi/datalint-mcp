@@ -2,14 +2,89 @@
 
 [![tests](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml)
 
-An MCP server that lets Claude audit the quality of your data. Point it at a CSV file or a
-SQLite database and ask "is this ready for training?" or "what's wrong with these tables?".
-Claude uses the server's tools to profile the data, find missing values, duplicates, outliers,
-broken keys and orphaned references, and spot personal data, without ever showing it.
+**Let Claude audit your data before you trust it.** datalint is an MCP server and Claude
+skill. Point Claude at a CSV file or a SQLite database and ask "is this ready for training?" or
+"can I trust revenue numbers built on this?". Claude profiles the data and finds missing
+values, duplicates, outliers, broken keys, orphaned references and personal data. Then it tells
+you what to fix, worst problem first, without ever putting personal data into the conversation.
 
-> Work in progress. A Claude Code plugin and a PyPI release are on the way.
+<!-- mcp-name: io.github.asma-hachaichi/datalint-mcp -->
 
-## Tools
+## Install
+
+The server runs with [uv](https://docs.astral.sh/uv/), so install that first.
+
+**Claude Code** (the plugin brings the server and the skill together):
+
+```shell
+/plugin install datalint --marketplace asma-hachaichi/datalint-mcp
+```
+
+On versions before Claude Code 2.1.275, add the marketplace first:
+
+```shell
+claude plugin marketplace add asma-hachaichi/datalint-mcp
+claude plugin install datalint@datalint-mcp
+```
+
+The plugin lets the server read your current project folder, and nothing outside it.
+
+**claude.ai or Claude Desktop:** go to Customize > Plugins > Add > Add marketplace and enter
+`asma-hachaichi/datalint-mcp`. The server runs on your computer, so it works in Claude Code
+and Cowork on desktop, not in web chat.
+
+**Any other MCP client:** run `uvx datalint-mcp` over stdio and set `DATALINT_ROOTS` to the
+folders it may read:
+
+```json
+{
+  "mcpServers": {
+    "datalint": {
+      "command": "uvx",
+      "args": ["datalint-mcp"],
+      "env": { "DATALINT_ROOTS": "/path/to/your/data" }
+    }
+  }
+}
+```
+
+## What to ask
+
+- "Audit `customers.csv` for duplicates before I import it into our CRM."
+- "Check `store.sqlite`. Can I trust revenue-per-customer numbers built on it?"
+- "I want to send `contacts.csv` to an outside agency. Audit it first."
+- "Can I use `line_id` as the primary key of `order_lines.csv`?"
+
+Here is what the server returned when Claude checked the example database's orders for
+references to customers that don't exist (abridged):
+
+```json
+{
+  "column": "customer_id",
+  "references": "customers.id",
+  "basis": "declared",
+  "rows_checked": 11,
+  "orphans": 2,
+  "orphans_pct": 18.18,
+  "orphan_row_numbers": [5, 10],
+  "orphan_examples": ["7", "9"]
+}
+```
+
+## How it works
+
+```mermaid
+flowchart LR
+    You -->|"is this data ready?"| Claude
+    Skill["datalint skill:<br/>how to run an audit"] -.-> Claude
+    Claude <-->|"MCP over stdio"| Server["datalint server<br/>10 read-only tools"]
+    Server -->|"read-only"| Data[("CSV, TSV, SQLite<br/>in allowed folders")]
+```
+
+The **server** does the measuring: exact counts, row numbers, ranges. The
+[**skill**](https://github.com/asma-hachaichi/datalint-mcp/blob/main/skills/datalint/SKILL.md)
+tells Claude which checks to run and when, what to skip, and how to report: a verdict first,
+then problems most serious first, each with real numbers and a concrete fix.
 
 | Tool | What it answers |
 |---|---|
@@ -26,8 +101,8 @@ broken keys and orphaned references, and spot personal data, without ever showin
 
 ## Safety by design
 
-- **It only reads folders you allow.** Paths outside `DATALINT_ROOTS` (default: the folder the
-  server starts in) are refused with a reason.
+- **It only reads folders you allow.** Paths outside `DATALINT_ROOTS` are refused with a reason.
+  Without the setting, the server can read only the folder it starts in.
 - **It never changes your data.** Databases are opened read-only.
 - **It keeps personal data out of the conversation.** Columns that look like personal data are
   flagged, and no tool ever returns their values. Card numbers and IBANs are confirmed with
@@ -35,12 +110,6 @@ broken keys and orphaned references, and spot personal data, without ever showin
 - **It never echoes whole rows.** Duplicate and reference checks return row numbers, not values.
 - **It's honest about cut output.** Long lists are paged, and every page says how many items
   exist and where the next page starts.
-
-## The Claude skill
-
-[`skills/datalint/SKILL.md`](skills/datalint/SKILL.md) teaches Claude how to run an audit:
-which tool to call when, what to skip, and how to report the problems, most serious first,
-with real numbers and a concrete fix for each.
 
 ## Evals: does Claude actually use the tools well?
 
@@ -64,7 +133,15 @@ The checks are plain patterns, not an LLM judge, so scores are cheap and repeata
 Tests confirm the datalint tools find exactly the planted problems, so a failed eval always
 points at the model's behaviour, not at broken test data.
 
-Run them locally (each run calls the Claude API and costs money; the summary shows how much):
+## Development
+
+```powershell
+python -m venv .venv
+.venv\Scripts\pip install -e ".[dev]"
+.venv\Scripts\python -m pytest
+```
+
+Run the evals (each run calls the Claude API and costs money; the summary shows how much):
 
 ```powershell
 .venv\Scripts\pip install -e ".[eval]"
@@ -73,32 +150,14 @@ $env:ANTHROPIC_API_KEY = "<your key>"
 .venv\Scripts\python -m evals --scenario bad_key --repeat 3
 ```
 
-On GitHub, run the **evals** workflow by hand from the Actions tab, once the repository has an
-`ANTHROPIC_API_KEY` secret. Unit tests run on every push and pull request.
+On GitHub, unit tests run on every push and pull request. The **evals** workflow runs only when
+started by hand, and needs an `ANTHROPIC_API_KEY` repository secret. Pushing a tag like `v0.1.0`
+runs the **release** workflow, which publishes to PyPI and then to the MCP Registry.
 
-## Run it locally
-
-```powershell
-python -m venv .venv
-.venv\Scripts\pip install -e ".[dev]"
-.venv\Scripts\python -m pytest
-```
-
-Add it to Claude Code, allowing it to read one folder:
-
-```powershell
-claude mcp add datalint -e DATALINT_ROOTS=C:\path\to\your\data -- C:\path\to\datalint-mcp\.venv\Scripts\datalint-mcp.exe
-```
-
-## Try it on the examples
-
-Allow the `examples` folder, then ask Claude to audit one of these files:
-
-- `customers.csv`: ten rows with exact and near-duplicate rows, `"N/A"` placeholders, stray
-  spaces and an empty column.
-- `shop.sqlite`: customers and orders, with orders pointing at customers that don't exist, an
-  extreme order amount, and personal data. [`make_shop_db.py`](examples/make_shop_db.py)
-  rebuilds it and lists every planted problem.
+To try it on sample data, allow the `examples` folder and ask Claude to audit
+`customers.csv` or `shop.sqlite`.
+[`make_shop_db.py`](https://github.com/asma-hachaichi/datalint-mcp/blob/main/examples/make_shop_db.py)
+rebuilds the database and lists every planted problem.
 
 ## License
 

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "datalint": {
+      "command": "uvx",
+      "args": ["datalint-mcp==0.1.0"],
+      "env": {
+        "DATALINT_ROOTS": "${CLAUDE_PROJECT_DIR}"
+      }
+    }
+  }
+}

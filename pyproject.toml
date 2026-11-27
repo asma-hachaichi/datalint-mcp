@@ -11,6 +11,14 @@ license = "MIT"
 requires-python = ">=3.10"
 authors = [{ name = "Asma Hachaichi" }]
 keywords = ["mcp", "claude", "data-quality", "llm", "agents"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Developers",
+  "Intended Audience :: Science/Research",
+  "Programming Language :: Python :: 3",
+  "Topic :: Database",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
   "mcp>=2.3,<3",
   "pandas>=2.2",
@@ -20,11 +28,20 @@ dependencies = [
 dev = ["pytest>=8"]
 eval = ["anthropic>=2.14,<3"]
 
+[project.urls]
+Homepage = "https://github.com/asma-hachaichi/datalint-mcp"
+Issues = "https://github.com/asma-hachaichi/datalint-mcp/issues"
+
 [project.scripts]
 datalint-mcp = "datalint_mcp.server:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/datalint_mcp"]
+
+# List exactly what the source archive holds, so stray local files never ship. The leading
+# slash anchors each pattern to the project root ("README.md" alone matches at any depth).
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/tests", "/examples", "/README.md", "/LICENSE", "/pyproject.toml"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
