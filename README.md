@@ -1,11 +1,13 @@
 # datalint-mcp
 
+[![tests](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml)
+
 An MCP server that lets Claude audit the quality of your data. Point it at a CSV file or a
 SQLite database and ask "is this ready for training?" or "what's wrong with these tables?".
 Claude uses the server's tools to profile the data, find missing values, duplicates, outliers,
 broken keys and orphaned references, and spot personal data, without ever showing it.
 
-> Work in progress. A model-in-the-loop eval suite and a Claude Code plugin are on the way.
+> Work in progress. A Claude Code plugin and a PyPI release are on the way.
 
 ## Tools
 
@@ -39,6 +41,40 @@ broken keys and orphaned references, and spot personal data, without ever showin
 [`skills/datalint/SKILL.md`](skills/datalint/SKILL.md) teaches Claude how to run an audit:
 which tool to call when, what to skip, and how to report the problems, most serious first,
 with real numbers and a concrete fix for each.
+
+## Evals: does Claude actually use the tools well?
+
+Unit tests prove each tool returns the right numbers. They can't prove that a model, reading
+only the tool descriptions and the skill, picks the right tools and reports what matters. The
+eval suite checks that: a real Claude model audits datasets with planted problems through the
+real server over stdio, and its final report is scored.
+
+| Scenario | Planted problem | The report must |
+|---|---|---|
+| `duplicate_customers` | 3 exact duplicate rows, 2 that differ only by case or spacing | count the exact copies and mention the near-duplicates |
+| `disguised_missing` | 9 incomes written as `N/A`, `-` or `unknown`, plus 3 blanks | name the column, the placeholder and the size of the gap |
+| `orphaned_orders` | 4 orders pointing at customers that don't exist (SQLite) | count them and point at a row |
+| `extreme_outlier` | a 999 °C reading among room temperatures | give the value and its row |
+| `personal_data` | names, emails and phone numbers | flag them, and never let one appear in the transcript |
+| `clean_data` | nothing | say it's ready, without inventing duplicates, outliers or orphans |
+| `bad_key` | a primary key reused on 2 rows | answer no, and say which values repeat |
+
+Each run is also scored on calling the right tool and staying within a tool-call budget.
+The checks are plain patterns, not an LLM judge, so scores are cheap and repeatable.
+Tests confirm the datalint tools find exactly the planted problems, so a failed eval always
+points at the model's behaviour, not at broken test data.
+
+Run them locally (each run calls the Claude API and costs money; the summary shows how much):
+
+```powershell
+.venv\Scripts\pip install -e ".[eval]"
+$env:ANTHROPIC_API_KEY = "<your key>"
+.venv\Scripts\python -m evals                      # every scenario, on claude-opus-5-5
+.venv\Scripts\python -m evals --scenario bad_key --repeat 3
+```
+
+On GitHub, run the **evals** workflow by hand from the Actions tab, once the repository has an
+`ANTHROPIC_API_KEY` secret. Unit tests run on every push and pull request.
 
 ## Run it locally
 

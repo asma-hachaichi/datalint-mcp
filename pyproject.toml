@@ -18,6 +18,7 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+eval = ["anthropic>=2.14,<3"]
 
 [project.scripts]
 datalint-mcp = "datalint_mcp.server:main"
@@ -27,3 +28,4 @@ packages = ["src/datalint_mcp"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+pythonpath = ["."]  # so tests can import the evals package
