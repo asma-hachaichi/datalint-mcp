@@ -133,6 +133,12 @@ The checks are plain patterns, not an LLM judge, so scores are cheap and repeata
 Tests confirm the datalint tools find exactly the planted problems, so a failed eval always
 points at the model's behaviour, not at broken test data.
 
+**Latest result: 14 of 14 runs passed (84 of 84 checks)** with `claude-opus-5-5`. That's every
+scenario twice, each in its own headless Claude Code session. The sessions had no built-in
+tools, so datalint was the only way to look at the data, and used `datalint-mcp 0.1.0` as
+installed from PyPI. No personal data appeared in any transcript, the clean dataset was called
+clean both times, and an audit cost about $0.09 and took 12 to 23 seconds.
+
 ## Development
 
 ```powershell
@@ -148,6 +154,13 @@ Run the evals (each run calls the Claude API and costs money; the summary shows 
 $env:ANTHROPIC_API_KEY = "<your key>"
 .venv\Scripts\python -m evals                      # every scenario, on claude-opus-5-5
 .venv\Scripts\python -m evals --scenario bad_key --repeat 3
+```
+
+Or run them through headless Claude Code sessions with your Claude Code login, no API key
+needed. Each run is a separate `claude -p` session that can use only the datalint server:
+
+```powershell
+.venv\Scripts\python -m evals.headless --repeat 2 --concurrency 4
 ```
 
 On GitHub, unit tests run on every push and pull request. The **evals** workflow runs only when

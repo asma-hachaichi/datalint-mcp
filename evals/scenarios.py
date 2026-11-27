@@ -86,7 +86,8 @@ DUPLICATES = Scenario(
     prompt="Audit customers.csv for duplicates before I import it into our CRM.",
     build=_build_duplicates,
     expect=[
-        Check("counts the 3 exact duplicate rows", near(number(3), r"duplicat|identical|exact cop")),
+        Check("counts the 3 exact duplicate rows",
+              near(number(3), r"duplicat|identical|exact cop|cop(?:y|ies|ied)")),
         Check("mentions rows that differ only by case or spacing",
               r"case|spacing|whitespace|capitali[sz]|near[- ]?duplicate|formatting"),
     ],
@@ -285,7 +286,8 @@ BAD_KEY = Scenario(
     expect=[
         Check("answers no", r"\bno\b|\bnot\b|\bcan(?:'|no)t\b"),
         Check("says line_id repeats",
-              near(r"line_id", r"duplicat|repeat|not unique|reused|twice|more than once")),
+              near(r"line_id", r"duplicat|repeat|not unique|reused|twice|more than once|"
+                               r"\bsame\b|\bshar(?:e|es|ed|ing)\b|used (?:by|in|on|for) two")),
         Check("names a repeated id or row", r"\b(?:17|22|31|44)\b"),
     ],
     required_tools=[{"check_keys", "find_duplicates"}],
