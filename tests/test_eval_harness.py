@@ -133,6 +133,17 @@ def test_a_precise_report_passes():
     assert failed_names(sc.ORPHANS, run) == []
 
 
+@pytest.mark.parametrize("scenario,report,tool_name", [
+    # Correct reports from real headless runs that an earlier, narrower check rejected.
+    (sc.DUPLICATES, "Three customers are copied exactly: rows 41, 42 and 43 match rows 5, 12 "
+                    "and 30. Two more differ only by case and spacing.", "find_duplicates"),
+    (sc.BAD_KEY, "No, `line_id` can't be the primary key. Rows 17 and 31 have the same "
+                 "`line_id`.", "check_keys"),
+], ids=["copied exactly", "same line_id"])
+def test_correct_wordings_from_real_runs_pass(scenario, report, tool_name):
+    assert failed_names(scenario, finished(scenario, report, tool_name)) == []
+
+
 def test_skipping_the_required_tool_fails():
     run = finished(sc.ORPHANS, "4 orders point at customers that don't exist (row 19).")
     assert failed_names(sc.ORPHANS, run) == ["called check_references"]
