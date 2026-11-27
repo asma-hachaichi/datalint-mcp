@@ -87,7 +87,8 @@ DUPLICATES = Scenario(
     build=_build_duplicates,
     expect=[
         Check("counts the 3 exact duplicate rows",
-              near(number(3), r"duplicat|identical|exact cop|cop(?:y|ies|ied)")),
+              near(number(3), r"duplicat|identical|exact cop|cop(?:y|ies|ied)|twice|"
+                              r"word for word|repeated")),
         Check("mentions rows that differ only by case or spacing",
               r"case|spacing|whitespace|capitali[sz]|near[- ]?duplicate|formatting"),
     ],
@@ -295,5 +296,47 @@ BAD_KEY = Scenario(
 )
 
 
-SCENARIOS = [DUPLICATES, MISSING, ORPHANS, OUTLIER, PERSONAL, CLEAN, BAD_KEY]
+# ---------------------------------------------------------------- Excel workbook
+
+STAFF_ORPHANS = {9: 7, 22: 8}  # rows 9 and 22 point at departments 7 and 8, which don't exist
+STAFF_PLACEHOLDERS = {5: "TBD", 14: "TBD", 27: "TBA"}
+
+
+def _build_workbook(folder: Path) -> None:
+    import pandas as pd
+
+    rng = random.Random(8)
+    employees = []
+    for i in range(1, 31):
+        start = STAFF_PLACEHOLDERS.get(i) or (
+            pd.Timestamp("2023-01-02") + pd.Timedelta(days=rng.randint(0, 700))
+        )
+        employees.append([i, STAFF_ORPHANS.get(i, rng.randint(1, 4)), start,
+                          rng.randrange(38_000, 92_000, 1_000)])
+    with pd.ExcelWriter(folder / "staff.xlsx", engine="openpyxl") as writer:
+        pd.DataFrame({"id": [1, 2, 3, 4],
+                      "department": ["Sales", "Finance", "Engineering", "Support"]}) \
+            .to_excel(writer, sheet_name="departments", index=False)
+        pd.DataFrame(employees, columns=["id", "department_id", "start_date", "salary"]) \
+            .to_excel(writer, sheet_name="employees", index=False)
+
+
+WORKBOOK = Scenario(
+    id="excel_workbook",
+    title="A two-sheet workbook with broken links and placeholder dates",
+    prompt="Check staff.xlsx before I build our headcount report from it.",
+    build=_build_workbook,
+    expect=[
+        Check("counts the 2 employees in departments that don't exist",
+              near(number(2), r"orphan|n[o']?t exist|non-?existent|missing department|"
+                              r"unknown department|no matching|invalid department")),
+        Check("points at an orphaned row", r"\b22\b|\brows? 9\b"),
+        Check("names the TBD placeholder", r"\bTB[DA]\b"),
+    ],
+    required_tools=[{"check_references"}],
+    truth={"orphan_rows": sorted(STAFF_ORPHANS), "start_date_placeholders": 3},
+)
+
+
+SCENARIOS = [DUPLICATES, MISSING, ORPHANS, OUTLIER, PERSONAL, CLEAN, BAD_KEY, WORKBOOK]
 BY_ID = {s.id: s for s in SCENARIOS}

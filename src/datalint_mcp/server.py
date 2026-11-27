@@ -12,9 +12,11 @@ from . import __version__, checks, keys
 from .datasets import Registry, roots_from_env
 
 INSTRUCTIONS = """\
-datalint audits the quality of tabular data: CSV and TSV files, and SQLite databases.
+datalint audits the quality of tabular data: CSV and TSV files, Excel workbooks, Parquet files
+and SQLite databases.
 
-Start with load_dataset (a database loads every table), then profile_dataset for an overview of
+Start with load_dataset (a database loads every table, a workbook every sheet), then
+profile_dataset for an overview of
 every column, including which ones hold personal data. Follow up with check_missing,
 find_duplicates, find_outliers and describe_column on whatever looks wrong. For several related
 tables, use check_keys and check_references. Then summarise the problems for the user, most
@@ -36,23 +38,25 @@ Offset = Annotated[int, Field(ge=0, description="Index of the first item to retu
 @mcp.tool(annotations=READ_ONLY)
 def load_dataset(
     path: Annotated[str, Field(description=(
-        "Path to a .csv, .tsv or SQLite (.db, .sqlite, .sqlite3) file, absolute or relative "
-        "to the first allowed folder."
+        "Path to a .csv, .tsv, Excel (.xlsx, .xlsm), Parquet (.parquet, .pq) or SQLite (.db, "
+        ".sqlite, .sqlite3) file, absolute or relative to the first allowed folder."
     ))],
     name: Annotated[str | None, Field(description=(
-        "Name to use in the other tools. Defaults to the file name, or for a database the "
-        "table name. Only allowed when loading a single table."
+        "Name to use in the other tools. Defaults to the file name, or the table or sheet "
+        "name. Only allowed when loading a single table or sheet."
     ))] = None,
     table: Annotated[str | None, Field(description=(
-        "SQLite only: load just this table. Omit to load every table."
+        "SQLite and Excel only: load just this table or sheet. Omit to load all of them."
     ))] = None,
 ) -> dict[str, Any]:
-    """Load a file so the other tools can audit it. A SQLite database loads every table, each
-    as its own dataset named after the table, along with the foreign keys it declares.
+    """Load a file so the other tools can audit it. A SQLite database loads every table and an
+    Excel workbook every sheet, each as its own dataset named after the table or sheet. A
+    database also brings the foreign keys it declares.
 
     Only truly empty cells count as missing. Placeholder text such as "N/A" or "null" is kept
-    as written, so check_missing can report it. Loading under an existing name replaces it.
-    Databases are opened read-only. Files outside the folders the user allowed are refused.
+    as written, so check_missing can report it. Excel and Parquet keep real dates and numbers.
+    Loading under an existing name replaces it. Databases are opened read-only. Files outside
+    the folders the user allowed are refused.
     """
     loaded = registry.load(path, name, table)
     datasets = []

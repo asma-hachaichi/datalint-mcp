@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "datalint-mcp"
-version = "0.1.0"
+version = "0.2.0"
 description = "An MCP server that lets Claude audit your data: profiles, missing values, duplicates and more."
 readme = "README.md"
 license = "MIT"
@@ -22,6 +22,8 @@ classifiers = [
 dependencies = [
   "mcp>=2.3,<3",
   "pandas>=2.2",
+  "openpyxl>=3.1",  # Excel workbooks
+  "pyarrow>=15",    # Parquet files
 ]
 
 [project.optional-dependencies]

@@ -1,4 +1,7 @@
-"""Build examples/shop.sqlite: two related tables with planted problems.
+"""Build examples/shop.sqlite and examples/shop.xlsx: two related tables with planted problems.
+
+The workbook holds the same two tables as sheets. It declares no foreign keys, so datalint
+finds the customers link from the column names instead.
 
 Planted problems:
 - orders.customer_id points at customers 7 and 9, who do not exist (rows 5 and 10)
@@ -57,5 +60,18 @@ def build(path: Path) -> Path:
     return path
 
 
+def build_workbook(path: Path) -> Path:
+    import pandas as pd
+
+    with pd.ExcelWriter(path, engine="openpyxl") as writer:
+        pd.DataFrame(CUSTOMERS, columns=["id", "name", "email", "phone", "card", "city"]) \
+            .to_excel(writer, sheet_name="customers", index=False)
+        pd.DataFrame(ORDERS, columns=["id", "customer_id", "amount", "ip", "notes"]) \
+            .to_excel(writer, sheet_name="orders", index=False)
+    return path
+
+
 if __name__ == "__main__":
-    print(build(Path(__file__).with_name("shop.sqlite")))
+    here = Path(__file__).parent
+    print(build(here / "shop.sqlite"))
+    print(build_workbook(here / "shop.xlsx"))

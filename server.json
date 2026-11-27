@@ -2,17 +2,17 @@
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.asma-hachaichi/datalint-mcp",
   "title": "datalint",
-  "description": "Audit CSV and SQLite data: missing values, duplicates, outliers, broken keys, personal data.",
+  "description": "Audit CSV, Excel, Parquet and SQLite data: missing values, duplicates, outliers, PII.",
   "repository": {
     "url": "https://github.com/asma-hachaichi/datalint-mcp",
     "source": "github"
   },
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packages": [
     {
       "registryType": "pypi",
       "identifier": "datalint-mcp",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "transport": {
         "type": "stdio"
       },

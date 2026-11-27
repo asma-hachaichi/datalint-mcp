@@ -139,7 +139,9 @@ def test_a_precise_report_passes():
                     "and 30. Two more differ only by case and spacing.", "find_duplicates"),
     (sc.BAD_KEY, "No, `line_id` can't be the primary key. Rows 17 and 31 have the same "
                  "`line_id`.", "check_keys"),
-], ids=["copied exactly", "same line_id"])
+    (sc.DUPLICATES, "Three customers appear twice, word for word. Two more differ only by "
+                    "case and spacing.", "find_duplicates"),
+], ids=["copied exactly", "same line_id", "appear twice"])
 def test_correct_wordings_from_real_runs_pass(scenario, report, tool_name):
     assert failed_names(scenario, finished(scenario, report, tool_name)) == []
 

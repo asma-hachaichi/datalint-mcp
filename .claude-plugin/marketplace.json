@@ -6,7 +6,7 @@
     {
       "name": "datalint",
       "source": "./",
-      "description": "Audit CSV, TSV and SQLite data for missing values, duplicates, outliers, broken keys and personal data."
+      "description": "Audit CSV, Excel, Parquet and SQLite data for missing values, duplicates, outliers, broken keys and personal data."
     }
   ]
 }
