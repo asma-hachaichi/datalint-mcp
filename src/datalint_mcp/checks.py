@@ -10,6 +10,7 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from . import pii
 from .datasets import Dataset, DatasetError
 
 MAX_TEXT_CHARS = 80
@@ -157,6 +158,7 @@ def profile_dataset(ds: Dataset, offset: int = 0, limit: int = 50) -> dict:
             "disguised_missing": disguised,
             "missing_pct": pct(missing + disguised, rows),
             "distinct": distinct,
+            "personal_data": pii.personal_kinds(s, str(name)),
         })
     shown, page_info = page(summaries, offset, limit)
     missing_cells = int(frame.isna().sum().sum())
@@ -176,6 +178,7 @@ def profile_dataset(ds: Dataset, offset: int = 0, limit: int = 50) -> dict:
 def describe_column(ds: Dataset, column: str, top: int = 10) -> dict:
     s = get_column(ds, column)
     kind = infer_type(s)
+    personal = pii.personal_kinds(s, column)
     disguised = disguised_missing_mask(s)
     present = s[s.notna() & ~disguised]
     result: dict[str, Any] = {
@@ -193,7 +196,8 @@ def describe_column(ds: Dataset, column: str, top: int = 10) -> dict:
         if kind == "numeric_as_text":
             bad = present[numbers.isna()]
             result["not_numeric"] = int(len(bad))
-            result["not_numeric_examples"] = [to_json(v) for v in bad.unique()[:5]]
+            if not personal:
+                result["not_numeric_examples"] = [to_json(v) for v in bad.unique()[:5]]
         numbers = numbers.dropna()
         if not numbers.empty:
             result["stats"] = {
@@ -231,7 +235,12 @@ def describe_column(ds: Dataset, column: str, top: int = 10) -> dict:
             as_text.nunique() - normalize_text(as_text).nunique()
         )
 
-    if kind in {"unique_text", "identifier"}:
+    if personal:
+        result["values_hidden"] = (
+            f"This column looks like it holds personal data ({', '.join(personal)}), "
+            "so no values are shown."
+        )
+    elif kind in {"unique_text", "identifier"}:
         result["top_values_note"] = "Every value appears once, so no common values are listed."
     else:
         counts = present.value_counts().head(top)
@@ -313,5 +322,104 @@ def find_duplicates(ds: Dataset, columns: list[str] | None = None, limit: int = 
             "are ignored.",
             ROW_NUMBER_NOTE,
             "Values are not shown. Use describe_column to look inside a column.",
+        ],
+    }
+
+
+def detect_pii(ds: Dataset, columns: list[str] | None = None,
+               offset: int = 0, limit: int = 50) -> dict:
+    names = columns or [str(c) for c in ds.frame.columns]
+    findings = []
+    for name in names:
+        found = pii.scan_column(get_column(ds, name), name)
+        if found:
+            findings.append({"column": name, "personal_data": found})
+    shown, page_info = page(findings, offset, limit)
+    return {
+        "dataset": ds.name,
+        "columns_scanned": len(names),
+        "columns_with_personal_data": len(findings),
+        "findings": shown,
+        "page": page_info,
+        "notes": [
+            "Values are never returned, and the other tools hide values in these columns.",
+            "basis 'values' means the values match the format (with checksums for card numbers "
+            "and IBANs); 'column_name' means only the column's name suggests it.",
+            f"Large columns are judged on a sample of {pii.MAX_SCAN_VALUES} values.",
+            "Pattern matching is a strong hint, not proof: unusual formats can be missed.",
+        ],
+    }
+
+
+NUMERIC_TYPES = {"numeric", "numeric_as_text"}
+
+
+def find_outliers(ds: Dataset, column: str | None = None, method: str = "iqr",
+                  limit: int = 10, offset: int = 0) -> dict:
+    """Values far outside a column's usual range.
+
+    iqr: outside 1.5 interquartile ranges beyond the middle half of the values (robust).
+    zscore: more than 3 standard deviations from the mean (assumes a bell-shaped spread).
+    """
+    frame = ds.frame
+    if column:
+        s = get_column(ds, column)
+        numbers = pd.to_numeric(s, errors="coerce")
+        if numbers.notna().sum() < 0.5 * max(1, s.notna().sum()):
+            raise DatasetError(
+                f"{column!r} is {infer_type(s)}, not a numeric column, so it has no outliers "
+                "to find. Use describe_column to look at its values."
+            )
+        targets = [column]
+    else:
+        targets = [str(c) for c in frame.columns if infer_type(frame[c]) in NUMERIC_TYPES]
+
+    entries = []
+    for name in targets:
+        s = frame[name]
+        numbers = pd.to_numeric(s, errors="coerce").reset_index(drop=True)
+        valid = numbers.dropna()
+        if len(valid) < 4:
+            entries.append({"column": name, "skipped": "Fewer than 4 numbers to compare."})
+            continue
+        if method == "zscore":
+            mean, std = valid.mean(), valid.std()
+            low, high = (mean - 3 * std, mean + 3 * std) if std > 0 else (mean, mean)
+        else:
+            q1, q3 = valid.quantile(0.25), valid.quantile(0.75)
+            spread = q3 - q1
+            low, high = q1 - 1.5 * spread, q3 + 1.5 * spread
+        outside = valid[(valid < low) | (valid > high)]
+        entry: dict[str, Any] = {
+            "column": name,
+            "outliers": len(outside),
+            "outliers_pct": pct(len(outside), len(valid)),
+            "below_range": int((outside < low).sum()),
+            "above_range": int((outside > high).sum()),
+            "usual_range": {"low": to_json(low), "high": to_json(high)},
+        }
+        if column and len(outside):
+            distance = np.maximum(low - outside, outside - high).sort_values(ascending=False)
+            hide = bool(pii.personal_kinds(s, name))
+            entry["most_extreme"] = [
+                {"row_number": int(i) + 1} if hide
+                else {"row_number": int(i) + 1, "value": to_json(outside[i])}
+                for i in distance.index[:limit]
+            ]
+        entries.append(entry)
+
+    entries.sort(key=lambda e: -e.get("outliers", -1))
+    shown, page_info = page(entries, offset, limit if not column else 1)
+    return {
+        "dataset": ds.name,
+        "method": method,
+        "columns_checked": len(targets),
+        "columns_with_outliers": sum(1 for e in entries if e.get("outliers")),
+        "results": shown,
+        "page": page_info,
+        "notes": [
+            "Outliers are unusual, not necessarily wrong: check them against what the column "
+            "means before calling them errors.",
+            ROW_NUMBER_NOTE,
         ],
     }

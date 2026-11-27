@@ -161,3 +161,37 @@ def test_duplicate_groups_respect_limit():
 def test_duplicates_on_unknown_column(customers):
     with pytest.raises(DatasetError, match="has no column"):
         checks.find_duplicates(customers, columns=["mail"])
+
+
+# ------------------------------------------------------------ find_outliers
+
+
+def test_outliers_summary_puts_the_worst_column_first(shop):
+    result = checks.find_outliers(shop["orders"])
+    first = result["results"][0]
+    assert first["column"] == "amount"
+    assert first["outliers"] == 1
+    assert first["above_range"] == 1
+    assert first["usual_range"] == {"low": 12.375, "high": 65.375}
+    assert "id" not in [r["column"] for r in result["results"]]  # identifiers are skipped
+
+
+def test_outliers_for_one_column_lists_the_extreme_rows(shop):
+    result = checks.find_outliers(shop["orders"], "amount")
+    assert result["results"][0]["most_extreme"] == [{"row_number": 7, "value": 5000.0}]
+
+
+def test_zscore_method():
+    values = [10.0] * 30 + [11.0] * 30 + [500.0]
+    result = checks.find_outliers(frame_dataset(x=values), "x", method="zscore")
+    assert result["results"][0]["outliers"] == 1
+
+
+def test_outliers_refuse_text_columns(shop):
+    with pytest.raises(DatasetError, match="not a numeric column"):
+        checks.find_outliers(shop["customers"], "city")
+
+
+def test_outliers_skip_tiny_columns():
+    result = checks.find_outliers(frame_dataset(x=[1.0, 2.0, 3.0]), "x")
+    assert "skipped" in result["results"][0]
