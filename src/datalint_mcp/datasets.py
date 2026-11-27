@@ -13,8 +13,18 @@ from mcp.server.mcpserver.exceptions import ToolError
 
 TEXT_SUFFIXES = {".csv": ",", ".tsv": "\t"}
 SQLITE_SUFFIXES = {".db", ".sqlite", ".sqlite3"}
+PARQUET_SUFFIXES = {".parquet", ".pq"}
+EXCEL_SUFFIXES = {".xlsx", ".xlsm"}
+SUPPORTED_SUFFIXES = TEXT_SUFFIXES.keys() | SQLITE_SUFFIXES | PARQUET_SUFFIXES | EXCEL_SUFFIXES
+SUPPORTED_DESCRIPTION = (
+    "CSV and TSV files, Excel workbooks (.xlsx, .xlsm), Parquet files (.parquet, .pq) and "
+    "SQLite databases (.db, .sqlite, .sqlite3)"
+)
 MAX_FILE_BYTES = 200 * 1024 * 1024
 MAX_TABLES = 50
+# Parquet compresses well, so a file under the size limit can still expand to far more rows
+# than fit in memory. Its row count is stored up front, so this is checked before loading.
+MAX_PARQUET_ROWS = 5_000_000
 
 
 class DatasetError(ToolError):
@@ -65,10 +75,14 @@ class Registry:
         if not path.is_file():
             raise DatasetError(f"There is no file at {path}.")
         suffix = path.suffix.lower()
-        if suffix not in TEXT_SUFFIXES and suffix not in SQLITE_SUFFIXES:
+        if suffix == ".xls":
             raise DatasetError(
-                f"{path.name} is not a supported file. Supported: .csv, .tsv, and SQLite "
-                "databases (.db, .sqlite, .sqlite3)."
+                f"{path.name} is in the old Excel 97-2003 format, which isn't supported. Ask "
+                "the user to save it as .xlsx."
+            )
+        if suffix not in SUPPORTED_SUFFIXES:
+            raise DatasetError(
+                f"{path.name} is not a supported file. Supported: {SUPPORTED_DESCRIPTION}."
             )
         size = path.stat().st_size
         if size > MAX_FILE_BYTES:
@@ -80,14 +94,22 @@ class Registry:
 
     def load(self, raw_path: str, name: str | None = None,
              table: str | None = None) -> list[Dataset]:
-        """Load a file. A SQLite file loads every table unless `table` names one."""
+        """Load a file. A SQLite database loads every table, and an Excel workbook every
+        sheet, unless `table` names one."""
         path = self.resolve(raw_path)
-        if path.suffix.lower() in TEXT_SUFFIXES:
-            if table:
-                raise DatasetError("table only applies to SQLite databases, not CSV or TSV files.")
-            loaded = [Dataset(name=name or path.stem, path=path, frame=_read_text(path))]
-        else:
+        suffix = path.suffix.lower()
+        if suffix in SQLITE_SUFFIXES:
             loaded = _read_sqlite(path, table, name)
+        elif suffix in EXCEL_SUFFIXES:
+            loaded = _read_excel(path, table, name)
+        else:
+            if table:
+                raise DatasetError(
+                    "table only applies to SQLite tables and Excel sheets, not to "
+                    f"{path.suffix} files."
+                )
+            reader = _read_parquet if suffix in PARQUET_SUFFIXES else _read_text
+            loaded = [Dataset(name=name or path.stem, path=path, frame=reader(path))]
         for dataset in loaded:
             self.datasets[dataset.name] = dataset
         return loaded
@@ -117,6 +139,67 @@ def _read_text(path: Path) -> pd.DataFrame:
         raise DatasetError(f"{path.name} could not be parsed as a table: {exc}") from None
 
 
+def _read_parquet(path: Path) -> pd.DataFrame:
+    import pyarrow.parquet as pq
+    from pyarrow import ArrowException
+
+    try:
+        rows = pq.ParquetFile(path).metadata.num_rows
+        if rows > MAX_PARQUET_ROWS:
+            raise DatasetError(
+                f"{path.name} has {rows:,} rows, over the limit of {MAX_PARQUET_ROWS:,}."
+            )
+        return pd.read_parquet(path)
+    except (ArrowException, OSError) as exc:
+        raise DatasetError(f"{path.name} could not be read as a Parquet file: {exc}") from None
+
+
+def _read_excel(path: Path, sheet: str | None, name: str | None) -> list[Dataset]:
+    import zipfile
+
+    try:
+        with pd.ExcelFile(path, engine="openpyxl") as workbook:
+            wanted = _pick(workbook.sheet_names, sheet, name, path, "sheet")
+            # Same rule as CSV: only empty cells are missing, so "N/A" stays visible.
+            return [
+                Dataset(
+                    name=name or s,
+                    path=path,
+                    frame=pd.read_excel(workbook, sheet_name=s, keep_default_na=False,
+                                        na_values=[""]),
+                    table=s,
+                )
+                for s in wanted
+            ]
+    except DatasetError:
+        raise
+    except (zipfile.BadZipFile, ValueError, KeyError, OSError) as exc:
+        raise DatasetError(f"{path.name} could not be read as an Excel workbook: {exc}") from None
+
+
+def _pick(available: list[str], wanted: str | None, name: str | None, path: Path,
+          kind: str) -> list[str]:
+    """Which tables or sheets to load, with refusals that name the real choices."""
+    if not available:
+        raise DatasetError(f"{path.name} has no {kind}s.")
+    if wanted is not None and wanted not in available:
+        raise DatasetError(
+            f"{path.name} has no {kind} {wanted!r}. Its {kind}s: {', '.join(available)}."
+        )
+    chosen = [wanted] if wanted else list(available)
+    if name and len(chosen) > 1:
+        raise DatasetError(
+            f"name only works when loading one {kind}. Pass table as well, or omit name to "
+            f"load every {kind} under its own name."
+        )
+    if len(chosen) > MAX_TABLES:
+        raise DatasetError(
+            f"{path.name} has {len(chosen)} {kind}s, over the limit of {MAX_TABLES}. "
+            f"Pass table to load them one at a time."
+        )
+    return chosen
+
+
 def _quote(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
@@ -130,23 +213,7 @@ def _read_sqlite(path: Path, table: str | None, name: str | None) -> list[Datase
                 "SELECT name FROM sqlite_master WHERE type = 'table' "
                 "AND name NOT LIKE 'sqlite_%' ORDER BY name"
             )]
-            if not tables:
-                raise DatasetError(f"{path.name} has no tables.")
-            if table is not None and table not in tables:
-                raise DatasetError(
-                    f"{path.name} has no table {table!r}. Its tables: {', '.join(tables)}."
-                )
-            wanted = [table] if table else tables
-            if name and len(wanted) > 1:
-                raise DatasetError(
-                    "name only works when loading one table. Pass table as well, or omit name "
-                    "to load every table under its own name."
-                )
-            if len(wanted) > MAX_TABLES:
-                raise DatasetError(
-                    f"{path.name} has {len(wanted)} tables, over the limit of {MAX_TABLES}. "
-                    "Pass table to load them one at a time."
-                )
+            wanted = _pick(tables, table, name, path, "table")
             return [
                 Dataset(
                     name=name or t,

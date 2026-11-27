@@ -69,6 +69,17 @@ def test_bad_key(tmp_path):
     assert result["example_duplicate_row_numbers"] == sc.BAD_KEY.truth["groups"]
 
 
+def test_excel_workbook(tmp_path):
+    registry, data = load(sc.WORKBOOK, tmp_path, "staff.xlsx")
+    # No declared foreign keys in a workbook: the link must be guessed from the column names.
+    [rel] = keys.check_references(registry, data["employees"])["relationships"]
+    assert rel["references"] == "departments.id"
+    assert rel["orphan_row_numbers"] == sc.WORKBOOK.truth["orphan_rows"]
+    [start] = [e for e in checks.check_missing(data["employees"])["missing_by_column"]
+               if e["column"] == "start_date"]
+    assert start["disguised_missing"] == sc.WORKBOOK.truth["start_date_placeholders"]
+
+
 @pytest.mark.parametrize("scenario", [s for s in sc.SCENARIOS if s.secrets], ids=lambda s: s.id)
 def test_secrets_are_really_in_the_data(scenario, tmp_path):
     """A leak check is only meaningful if the values it looks for exist."""
@@ -86,4 +97,14 @@ def test_scenarios_are_deterministic(tmp_path):
         scenario.build(first)
         scenario.build(second)
         for path in first.iterdir():
-            assert path.read_bytes() == (second / path.name).read_bytes(), scenario.id
+            if path.suffix == ".xlsx":
+                # Workbooks embed their save time, so compare what's in them, not the bytes.
+                import pandas as pd
+
+                one = pd.read_excel(path, sheet_name=None)
+                two = pd.read_excel(second / path.name, sheet_name=None)
+                assert one.keys() == two.keys(), scenario.id
+                for sheet in one:
+                    pd.testing.assert_frame_equal(one[sheet], two[sheet])
+            else:
+                assert path.read_bytes() == (second / path.name).read_bytes(), scenario.id

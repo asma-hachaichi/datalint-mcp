@@ -22,6 +22,7 @@ ROW_NUMBER_NOTE = "Row numbers count data rows from 1: row 1 is the first line a
 # so "" also catches cells that hold only spaces.
 DISGUISED_MISSING = {
     "", "na", "n/a", "nan", "null", "none", "nil", "-", "--", "?", "unknown", "missing", "#n/a",
+    "tbd", "tba",  # common in spreadsheets, especially for dates
 }
 
 
@@ -212,10 +213,13 @@ def describe_column(ds: Dataset, column: str, top: int = 10) -> dict:
                 "negatives": int((numbers < 0).sum()),
             }
 
-    if kind == "datetime" and is_text(s):
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            dates = pd.to_datetime(present.astype(str), errors="coerce", format="mixed")
+    if kind == "datetime":
+        if is_text(s):  # dates written as text, as in CSV files
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                dates = pd.to_datetime(present.astype(str), errors="coerce", format="mixed")
+        else:  # real date values, as Excel and Parquet store them
+            dates = present
         result["dates"] = {
             "earliest": to_json(dates.min()),
             "latest": to_json(dates.max()),

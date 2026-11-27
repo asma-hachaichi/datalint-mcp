@@ -1,10 +1,10 @@
 {
   "name": "datalint",
-  "version": "0.1.0",
-  "description": "Let Claude audit your data: missing values, duplicates, outliers, broken keys, orphaned references and personal data, in CSV, TSV and SQLite files.",
+  "version": "0.2.0",
+  "description": "Let Claude audit your data: missing values, duplicates, outliers, broken keys, orphaned references and personal data, in CSV, Excel, Parquet and SQLite files.",
   "author": { "name": "Asma Hachaichi" },
   "homepage": "https://github.com/asma-hachaichi/datalint-mcp",
   "repository": "https://github.com/asma-hachaichi/datalint-mcp",
   "license": "MIT",
-  "keywords": ["data-quality", "mcp", "csv", "sqlite", "pii"]
+  "keywords": ["data-quality", "mcp", "csv", "excel", "parquet", "sqlite", "pii"]
 }

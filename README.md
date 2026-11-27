@@ -3,7 +3,8 @@
 [![tests](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml/badge.svg)](https://github.com/asma-hachaichi/datalint-mcp/actions/workflows/tests.yml)
 
 **Let Claude audit your data before you trust it.** datalint is an MCP server and Claude
-skill. Point Claude at a CSV file or a SQLite database and ask "is this ready for training?" or
+skill. Point Claude at a CSV or Parquet file, an Excel workbook or a SQLite database and ask
+"is this ready for training?" or
 "can I trust revenue numbers built on this?". Claude profiles the data and finds missing
 values, duplicates, outliers, broken keys, orphaned references and personal data. Then it tells
 you what to fix, worst problem first, without ever putting personal data into the conversation.
@@ -54,6 +55,7 @@ folders it may read:
 - "Check `store.sqlite`. Can I trust revenue-per-customer numbers built on it?"
 - "I want to send `contacts.csv` to an outside agency. Audit it first."
 - "Can I use `line_id` as the primary key of `order_lines.csv`?"
+- "Check every sheet in `budget.xlsx` before I send it to finance."
 
 Here is what the server returned when Claude checked the example database's orders for
 references to customers that don't exist (abridged):
@@ -78,7 +80,7 @@ flowchart LR
     You -->|"is this data ready?"| Claude
     Skill["datalint skill:<br/>how to run an audit"] -.-> Claude
     Claude <-->|"MCP over stdio"| Server["datalint server<br/>10 read-only tools"]
-    Server -->|"read-only"| Data[("CSV, TSV, SQLite<br/>in allowed folders")]
+    Server -->|"read-only"| Data[("CSV, Excel, Parquet, SQLite<br/>in allowed folders")]
 ```
 
 The **server** does the measuring: exact counts, row numbers, ranges. The
@@ -88,7 +90,7 @@ then problems most serious first, each with real numbers and a concrete fix.
 
 | Tool | What it answers |
 |---|---|
-| `load_dataset` | Loads a CSV, TSV or SQLite file. A database loads every table, with its declared foreign keys |
+| `load_dataset` | Loads a CSV, TSV, Excel, Parquet or SQLite file. A workbook loads every sheet, and a database every table with its declared foreign keys |
 | `list_datasets` | Which datasets are loaded, and their size |
 | `profile_dataset` | One overview per column: real type, missing values, distinct values, personal data |
 | `describe_column` | A close look at one column: statistics, lengths, common values, formatting problems |
@@ -127,17 +129,19 @@ real server over stdio, and its final report is scored.
 | `personal_data` | names, emails and phone numbers | flag them, and never let one appear in the transcript |
 | `clean_data` | nothing | say it's ready, without inventing duplicates, outliers or orphans |
 | `bad_key` | a primary key reused on 2 rows | answer no, and say which values repeat |
+| `excel_workbook` | 2 employees in departments that don't exist (across sheets), 3 start dates written as `TBD`/`TBA` | count the broken links, point at a row, name the placeholder |
 
 Each run is also scored on calling the right tool and staying within a tool-call budget.
 The checks are plain patterns, not an LLM judge, so scores are cheap and repeatable.
 Tests confirm the datalint tools find exactly the planted problems, so a failed eval always
 points at the model's behaviour, not at broken test data.
 
-**Latest result: 14 of 14 runs passed (84 of 84 checks)** with `claude-opus-5-5`. That's every
-scenario twice, each in its own headless Claude Code session. The sessions had no built-in
-tools, so datalint was the only way to look at the data, and used `datalint-mcp 0.1.0` as
-installed from PyPI. No personal data appeared in any transcript, the clean dataset was called
-clean both times, and an audit cost about $0.09 and took 12 to 23 seconds.
+**Latest result (version 0.2.0): 16 of 16 runs passed (96 of 96 checks)** with
+`claude-opus-5-5`. That's every scenario twice, each in its own headless Claude Code session.
+The sessions had no built-in tools, so datalint was the only way to look at the data. No
+personal data appeared in any transcript, the clean dataset was called clean both times, and
+an audit cost about $0.10 and took 14 to 29 seconds. Version 0.1.0, installed from PyPI, scored
+14 of 14 on the first seven scenarios.
 
 ## Development
 
