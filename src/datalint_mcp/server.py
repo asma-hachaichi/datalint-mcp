@@ -2,24 +2,27 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.types import ToolAnnotations
 from pydantic import Field
 
-from . import __version__, checks
+from . import __version__, checks, keys
 from .datasets import Registry, roots_from_env
 
 INSTRUCTIONS = """\
-datalint audits the quality of tabular data.
+datalint audits the quality of tabular data: CSV and TSV files, and SQLite databases.
 
-Start with load_dataset, then profile_dataset for an overview of every column. Follow up with
-check_missing, find_duplicates and describe_column on whatever looks wrong, then summarise the
-problems for the user, most serious first, with the numbers the tools returned.
+Start with load_dataset (a database loads every table), then profile_dataset for an overview of
+every column, including which ones hold personal data. Follow up with check_missing,
+find_duplicates, find_outliers and describe_column on whatever looks wrong. For several related
+tables, use check_keys and check_references. Then summarise the problems for the user, most
+serious first, with the numbers the tools returned.
 
-Results never contain whole rows. Duplicate checks return row numbers counted from 1 after the
-header. Long lists are paged: when page.next_offset is not null, more items exist."""
+Results never contain whole rows, and values in columns that look like personal data are never
+shown. Row numbers count data rows from 1. Long lists are paged: when page.next_offset is not
+null, more items exist."""
 
 READ_ONLY = ToolAnnotations(read_only_hint=True, open_world_hint=False)
 
@@ -33,28 +36,39 @@ Offset = Annotated[int, Field(ge=0, description="Index of the first item to retu
 @mcp.tool(annotations=READ_ONLY)
 def load_dataset(
     path: Annotated[str, Field(description=(
-        "Path to a .csv or .tsv file, absolute or relative to the first allowed folder."
+        "Path to a .csv, .tsv or SQLite (.db, .sqlite, .sqlite3) file, absolute or relative "
+        "to the first allowed folder."
     ))],
     name: Annotated[str | None, Field(description=(
-        "Name to use for it in the other tools. Defaults to the file name without extension."
+        "Name to use in the other tools. Defaults to the file name, or for a database the "
+        "table name. Only allowed when loading a single table."
+    ))] = None,
+    table: Annotated[str | None, Field(description=(
+        "SQLite only: load just this table. Omit to load every table."
     ))] = None,
 ) -> dict[str, Any]:
-    """Load a CSV or TSV file so the other tools can audit it.
+    """Load a file so the other tools can audit it. A SQLite database loads every table, each
+    as its own dataset named after the table, along with the foreign keys it declares.
 
     Only truly empty cells count as missing. Placeholder text such as "N/A" or "null" is kept
     as written, so check_missing can report it. Loading under an existing name replaces it.
-    Files outside the folders the user allowed are refused.
+    Databases are opened read-only. Files outside the folders the user allowed are refused.
     """
-    ds = registry.load(path, name)
-    names = [str(c) for c in ds.frame.columns]
-    return {
-        "dataset": ds.name,
-        "file": str(ds.path),
-        "rows": len(ds.frame),
-        "columns": len(names),
-        "column_names": names[:100],
-        "column_names_not_shown": max(0, len(names) - 100),
-    }
+    loaded = registry.load(path, name, table)
+    datasets = []
+    for ds in loaded:
+        names = [str(c) for c in ds.frame.columns]
+        datasets.append({
+            "dataset": ds.name,
+            "rows": len(ds.frame),
+            "columns": len(names),
+            "column_names": names[:100],
+            "column_names_not_shown": max(0, len(names) - 100),
+            "declared_foreign_keys": [
+                f"{fk.column} -> {fk.ref_table}.{fk.ref_column}" for fk in ds.foreign_keys
+            ],
+        })
+    return {"file": str(loaded[0].path), "datasets": datasets}
 
 
 @mcp.tool(annotations=READ_ONLY)
@@ -130,6 +144,82 @@ def find_duplicates(
     rows match once case and spacing are ignored. Values are never shown.
     """
     return checks.find_duplicates(registry.get(dataset), columns, limit)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def find_outliers(
+    dataset: DatasetName,
+    column: Annotated[str | None, Field(description=(
+        "One numeric column to examine closely. Omit to summarise every numeric column."
+    ))] = None,
+    method: Annotated[Literal["iqr", "zscore"], Field(description=(
+        "iqr (default): beyond 1.5 interquartile ranges from the middle half, robust to skew. "
+        "zscore: more than 3 standard deviations from the mean, for bell-shaped data."
+    ))] = "iqr",
+    limit: Annotated[int, Field(ge=1, le=100, description=(
+        "Columns per page, or with column, how many of the most extreme rows to list."
+    ))] = 10,
+    offset: Offset = 0,
+) -> dict[str, Any]:
+    """Find numbers far outside a column's usual range.
+
+    Without column: every numeric column with its outlier count and usual range, most outliers
+    first. With column: also its most extreme rows as row numbers with values (values hidden if
+    the column looks like personal data).
+    """
+    return checks.find_outliers(registry.get(dataset), column, method, limit, offset)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def check_keys(
+    dataset: DatasetName,
+    columns: Annotated[list[str] | None, Field(description=(
+        "Check whether these columns together uniquely identify every row, such as ['id'] or "
+        "['order_id', 'line']. Omit to list candidate keys and check every id-like column."
+    ))] = None,
+) -> dict[str, Any]:
+    """Check whether a column (or set of columns) works as a unique key: no missing values and
+    no repeats. Reports how many rows break it, with example row numbers."""
+    return keys.check_keys(registry.get(dataset), columns)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def check_references(
+    dataset: DatasetName,
+    column: Annotated[str | None, Field(description=(
+        "Column in this dataset that points at another dataset, such as 'customer_id'."
+    ))] = None,
+    references: Annotated[str | None, Field(description=(
+        "What it points at, as 'dataset.column', such as 'customers.id'. Pass with column."
+    ))] = None,
+    limit: Annotated[int, Field(ge=1, le=100, description="Orphan row numbers to list.")] = 10,
+) -> dict[str, Any]:
+    """Find orphans: values that point at rows missing from the referenced dataset, such as
+    orders whose customer does not exist.
+
+    Without column and references, checks every foreign key the database declares, plus links
+    guessed from column names across loaded datasets (orders.customer_id -> customers.id).
+    """
+    return keys.check_references(registry, registry.get(dataset), column, references, limit)
+
+
+@mcp.tool(annotations=READ_ONLY)
+def detect_pii(
+    dataset: DatasetName,
+    columns: Annotated[list[str] | None, Field(description=(
+        "Columns to scan. Omit to scan every column."
+    ))] = None,
+    offset: Offset = 0,
+    limit: Annotated[int, Field(ge=1, le=200, description="Columns per page.")] = 50,
+) -> dict[str, Any]:
+    """Find columns that look like personal data: emails, phone numbers, card numbers, IBANs,
+    IP addresses, US social security numbers, and names, addresses, birth dates or ID numbers
+    suggested by the column name.
+
+    Reports which kinds, how many values match, and whether the evidence is the values or only
+    the column name. Never returns the values themselves.
+    """
+    return checks.detect_pii(registry.get(dataset), columns, offset, limit)
 
 
 def main() -> None:

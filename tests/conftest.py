@@ -1,8 +1,18 @@
+import importlib.util
 from pathlib import Path
 
 import pytest
 
 from datalint_mcp.datasets import Registry
+
+EXAMPLES = Path(__file__).resolve().parents[1] / "examples"
+
+
+def _load_example_builder():
+    spec = importlib.util.spec_from_file_location("make_shop_db", EXAMPLES / "make_shop_db.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.build
 
 # Ten rows with known problems:
 # - rows 3, 9 and 10 are identical
@@ -39,7 +49,18 @@ def registry(data_dir: Path) -> Registry:
 
 @pytest.fixture
 def customers(registry: Registry):
-    return registry.load("customers.csv")
+    return registry.load("customers.csv")[0]
+
+
+@pytest.fixture
+def shop_path(data_dir: Path) -> Path:
+    """The example database (see examples/make_shop_db.py for its planted problems)."""
+    return _load_example_builder()(data_dir / "shop.sqlite")
+
+
+@pytest.fixture
+def shop(registry: Registry, shop_path: Path) -> dict:
+    return {d.name: d for d in registry.load(shop_path.name)}
 
 
 @pytest.fixture

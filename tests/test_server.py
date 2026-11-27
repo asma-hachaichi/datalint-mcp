@@ -10,8 +10,8 @@ from mcp import Client, StdioServerParameters
 from datalint_mcp import server
 
 EXPECTED_TOOLS = {
-    "load_dataset", "list_datasets", "profile_dataset",
-    "describe_column", "check_missing", "find_duplicates",
+    "load_dataset", "list_datasets", "profile_dataset", "describe_column", "check_missing",
+    "find_duplicates", "find_outliers", "check_keys", "check_references", "detect_pii",
 }
 
 pytestmark = pytest.mark.anyio
@@ -42,8 +42,23 @@ async def test_load_then_profile(isolated_registry):
     async with Client(server.mcp) as client:
         loaded = payload(await client.call_tool("load_dataset", {"path": "customers.csv"}))
         profile = payload(await client.call_tool("profile_dataset", {"dataset": "customers"}))
-    assert loaded["rows"] == 10
+    assert loaded["datasets"][0]["rows"] == 10
     assert profile["duplicate_rows"] == 2
+
+
+async def test_database_audit_end_to_end(isolated_registry, shop_path):
+    async with Client(server.mcp) as client:
+        loaded = payload(await client.call_tool("load_dataset", {"path": shop_path.name}))
+        refs = payload(await client.call_tool("check_references", {"dataset": "orders"}))
+        email = payload(await client.call_tool(
+            "describe_column", {"dataset": "customers", "column": "email"}
+        ))
+    assert {d["dataset"] for d in loaded["datasets"]} == {"customers", "orders"}
+    orders = next(d for d in loaded["datasets"] if d["dataset"] == "orders")
+    assert orders["declared_foreign_keys"] == ["customer_id -> customers.id"]
+    assert refs["relationships"][0]["orphan_row_numbers"] == [5, 10]
+    assert "values_hidden" in email
+    assert "@" not in json.dumps(email)
 
 
 async def test_refusal_reason_reaches_the_model(isolated_registry):
@@ -73,5 +88,5 @@ async def test_runs_over_stdio(data_dir):
         loaded = payload(await client.call_tool("load_dataset", {"path": "customers.csv"}))
         dupes = payload(await client.call_tool("find_duplicates", {"dataset": "customers"}))
     assert {t.name for t in tools} == EXPECTED_TOOLS
-    assert loaded["columns"] == 8
+    assert loaded["datasets"][0]["columns"] == 8
     assert dupes["groups"] == [{"row_numbers": [3, 9, 10], "copies": 3}]
